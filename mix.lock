@@ -1,0 +1,15 @@
+%{
+  "dns": {:git, "https://github.com/xenomorphtech/elixir-dns-server.git", "bb319a0738fa92d7637c1d69d0c9e7197924cfc1", []},
+  "ex_actors": {:git, "https://github.com/xenomorphtech/ex_actors", "4c56f8afd86d9500a0a1beb8f3d323872c40324e", []},
+  "exjsx": {:hex, :exjsx, "4.0.0", "60548841e0212df401e38e63c0078ec57b33e7ea49b032c796ccad8cde794b5c", [:mix], [{:jsx, "~> 2.8.0", [hex: :jsx, repo: "hexpm", optional: false]}], "hexpm", "32e95820a97cffea67830e91514a2ad53b888850442d6d395f53a1ac60c82e07"},
+  "floki": {:hex, :floki, "0.30.1", "75d35526d3a1459920b6e87fdbc2e0b8a3670f965dd0903708d2b267e0904c55", [:mix], [{:html_entities, "~> 0.5.0", [hex: :html_entities, repo: "hexpm", optional: false]}], "hexpm", "e9c03524447d1c4cbfccd672d739b8c18453eee377846b119d4fd71b1a176bb8"},
+  "gen_smtp": {:git, "https://github.com/gen-smtp/gen_smtp", "185c54dbd61a3c284bd44b1442c764e9642a386c", []},
+  "html_entities": {:hex, :html_entities, "0.5.2", "9e47e70598da7de2a9ff6af8758399251db6dbb7eebe2b013f2bbd2515895c3c", [:mix], [], "hexpm", "c53ba390403485615623b9531e97696f076ed415e8d8058b1dbaa28181f4fdcc"},
+  "jsx": {:hex, :jsx, "2.8.3", "a05252d381885240744d955fbe3cf810504eb2567164824e19303ea59eef62cf", [:mix, :rebar3], [], "hexpm", "fc3499fed7a726995aa659143a248534adc754ebd16ccd437cd93b649a95091f"},
+  "mitm": {:git, "https://github.com/xenomorphtech/mitm_ex.git", "d18d6b1f6dbd7870b87af31864ae3c91621753a8", []},
+  "mnesia_kv": {:git, "https://github.com/xenomorphtech/mnesia_kv.git", "890109669975807b72506adceea7f20682bc6a67", []},
+  "ranch": {:hex, :ranch, "2.2.0", "25528f82bc8d7c6152c57666ca99ec716510fe0925cb188172f41ce93117b1b0", [:make, :rebar3], [], "hexpm", "fa0b99a1780c80218a4197a59ea8d3bdae32fbff7e88527d7d8a4787eff4f8e7"},
+  "rocksdb": {:git, "https://gitlab.com/vans/erlang-rocksdb.git", "18add8e992a374771e6f1e97b1f50db6bf31a16f", [branch: "fix-gcc13"]},
+  "socket": {:hex, :socket, "0.3.13", "98a2ab20ce17f95fb512c5cadddba32b57273e0d2dba2d2e5f976c5969d0c632", [:mix], [], "hexpm", "f82ea9833ef49dde272e6568ab8aac657a636acb4cf44a7de8a935acb8957c2e"},
+  "utilex": {:git, "https://gitlab+deploy-token-3565493:7QsqgYuA1EcKQU7eRUEn@gitlab.com/xenomorph-colonies/utilex.git", "22db0d804edb91c83bf9a1127e31f7caeb2979c6", []},
+}
