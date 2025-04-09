@@ -126,14 +126,14 @@ defmodule Actor.AutoRegister do
     script = "TAG=#{tag} python3.9 -u /root/script_new.py #{args} > /tmp/#{tag}.log"
 
     Logger.warning(script)
-    File.write("/rootfs/tmp/#{tag}", script)
-    File.write("/rootfs/tmp/#{tag}.log", "")
+    File.write("/root/tmp/#{tag}", script)
+    File.write("/root/tmp/#{tag}.log", "")
     # 执行命令
     _res = :os.cmd(~c"-- sh /tmp/#{tag}")
     IO.puts(_res)
     # if read instantly, the file is complete buffered yet
     :timer.sleep(500)
-    res = proc_result("/rootfs/tmp/#{tag}.log")
+    res = proc_result("/root/tmp/#{tag}.log")
 
     try do
       _ghost =
@@ -170,7 +170,7 @@ defmodule Actor.AutoRegister do
         {:failed, res}
 
       {:error, _res} ->
-        {:error, "/rootfs/tmp/#{tag}.log"}
+        {:error, "/root/tmp/#{tag}.log"}
     end
   end
 
