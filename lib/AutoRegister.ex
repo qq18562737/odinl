@@ -130,7 +130,7 @@ defmodule Actor.AutoRegister do
     File.write("/root/tmp/#{tag}.log", "")
     # 执行命令
     #_res = :os.cmd(~c"-- sh /tmp/#{tag}")
-    _res = :os.cmd(String.to_charlist("sh /tmp/#{tag}"))
+    _res = :os.cmd(String.to_charlist("sh /root/tmp/#{tag}"))
     IO.puts(_res)
     # if read instantly, the file is complete buffered yet
     :timer.sleep(500)
