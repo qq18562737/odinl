@@ -97,13 +97,69 @@ defmodule Actor.AutoRegister do
       end
     end
   
+    
     # 使用Chrome执行自动化注册
     def chromium_py(tag, args, need \\ nil, proxy) do
       proxy = JSX.encode!(proxy)
       args = args ++ [proxy]
       args = args |> Enum.map(&"'#{&1}'") |> Enum.join(" ")
+      script = "TAG=#{tag} python3.9 -u /root/script_new.py #{args} > /tmp/#{tag}.log"
+      #script = "TAG=#{tag} python3 -u /root/baidu-test.py #{args} > /tmp/#{tag}.log"
+      
+      Logger.warning(script)
+      #add option to check if its lxc
+      File.write("/rootfs/tmp/#{tag}", script)
+      File.write("/rootfs/tmp/#{tag}.log", "")    
+      # 执行命令
+     _res = :os.cmd(~c"-- sh /tmp/#{tag}")
+     IO.puts(_res)
+      # if read instantly, the file is complete buffered yet
+      :timer.sleep(500)
+      res = proc_result("/rootfs/tmp/#{tag}.log")
+      try do
+        _ghost =
+          :os.cmd(~c"grep -s -l \"TAG=#{tag}\" /proc/*/environ")
+          |> :binary.list_to_bin()
+          |> String.split("\n")
+          |> Enum.filter(&(&1 != ""))
+          |> Enum.each(fn x ->
+            Logger.warning("killing ghost proccess #{tag} #{x}")
+            pid = Enum.at(String.split(x, "/"), 2)
+            :os.cmd(~c"kill -9 #{pid}")
+          end)
+      catch
+        _, _ -> nil
+      end
+      case res do
+        {:ok, tok} ->
+          cond do
+            !need ->
+              {:ok, res}
+            true ->
+             
+          end
+        {:error, res}
+        when res in [
+               "failed_run_chrome",
+               "proxy_timeout",
+               "registration_error",
+               "site_blocked",
+               "verification_required",
+               "email_already_exists"
+             ] ->
+          {:failed, res}
+        {:error, _res} ->
+          {:error, "/rootfs/tmp/#{tag}.log"}
+      end
+    end
+
+    # 使用Chrome执行自动化注册
+    def chromium_py11(tag, args, need \\ nil, proxy) do
+      proxy = JSX.encode!(proxy)
+      args = args ++ [proxy]
+      args = args |> Enum.map(&"'#{&1}'") |> Enum.join(" ")
       script = "TAG=#{tag} python3 -u /root/oa_nc.py #{args} > /tmp/#{tag}.log"
-      script = "TAG=#{tag} python3 -u /root/baidu-test.py #{args} > /tmp/#{tag}.log"
+      #script = "TAG=#{tag} python3 -u /root/baidu-test.py #{args} > /tmp/#{tag}.log"
       
       Logger.warning(script)
       #add option to check if its lxc
