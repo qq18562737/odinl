@@ -129,7 +129,8 @@ defmodule Actor.AutoRegister do
     File.write("/root/tmp/#{tag}", script)
     File.write("/root/tmp/#{tag}.log", "")
     # 执行命令
-    _res = :os.cmd(~c"-- sh /tmp/#{tag}")
+    #_res = :os.cmd(~c"-- sh /tmp/#{tag}")
+    _res = :os.cmd(String.to_charlist("sh /tmp/#{tag}"))
     IO.puts(_res)
     # if read instantly, the file is complete buffered yet
     :timer.sleep(500)
@@ -177,12 +178,12 @@ defmodule Actor.AutoRegister do
   # 生成代理配置
   def get_proxy(account_uuid) do
     # 生成唯一会话ID
-    session_id = "#{account_uuid}_#{:os.system_time(1000)}"
+    #session_id = "#{account_uuid}_#{:os.system_time(1000)}"
 
     %{
       host: "http://geo.iproyal.com:12321",
       ip: "geo.iproyal.com",
-      password: "593chgaqlksdyh91_country-us_session-#{session_id}_lifetime-5m",
+      password: "593chgaqlksdyh91_country-us_session-#{:os.system_time(1000)}_lifetime-5m",
       port: 12321,
       type: :http,
       username: "RCKLZ0XLD3yD8IGm"
