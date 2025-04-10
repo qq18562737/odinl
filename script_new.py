@@ -1436,19 +1436,47 @@ class OdinRegistrationBot:
             if success:
                 result['status'] = 'success'
                 # 提取服务器和角色名信息
-                info_elements = self.driver.find_elements(By.CSS_SELECTOR, "ul.list_info li p.txt_info")
-                if len(info_elements) >= 2:
-                    result['step'] = self.step
-                    result['server'] = info_elements[0].text
-                    result['char_name'] = info_elements[1].text
-                    result['message'] = "register_ok"
-                else:
-                    result['message'] = "register_ok_no_info"
+                # info_elements = self.driver.find_elements(By.CSS_SELECTOR, "ul.list_info li p.txt_info")
+                # if len(info_elements) >= 2:
+                #     result['step'] = self.step
+                #     result['server'] = info_elements[0].text
+                #     result['char_name'] = info_elements[1].text
+                #     result['message'] = "register_ok"
+                # else:
+                #     result['message'] = "register_ok_no_info"
                 
-                print("$RESULT$:", json.dumps(result))
-                print(json.dumps(result))
+                # print("$RESULT$:", json.dumps(result))
+                # print(json.dumps(result))
+                try:
+                    # 设置10秒超时等待元素出现
+                    info_elements = WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_all_elements_located((By.CSS_SELECTOR, "ul.list_info li p.txt_info")))
+                    
+                    if len(info_elements) >= 2:
+                        result['step'] = self.step
+                        result['server'] = info_elements[0].text
+                        result['char_name'] = info_elements[1].text
+                        result['message'] = "register_ok"
+                    else:
+                        result['message'] = "register_ok_no_info"
+                    
+                    print("$RESULT$:", json.dumps(result))
+                    print(json.dumps(result))
 
-                return 0
+                except TimeoutException:
+                    # 处理超时情况
+                    result['step'] = self.step
+                    result['message'] = "timeout_finding_elements"
+                    print("$RESULT$:", json.dumps(result))
+                    print(json.dumps(result))
+                except Exception as e:
+                    # 处理其他异常
+                    result['step'] = self.step
+                    result['message'] = f"error: {str(e)}"
+                    print("$RESULT$:", json.dumps(result))
+                    print(json.dumps(result))
+                finally:
+                   return 0
                 
             else:
                 result['step'] = self.step
