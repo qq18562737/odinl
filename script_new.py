@@ -1543,8 +1543,9 @@ if __name__ == '__main__':
                 'server_identifier': server_identifier,
                 'proxy': proxy
             }
-            #print(f"启动参数: {json.dumps(param_info)}")
-            self.log_step(f"启动参数: {json.dumps(param_info)}", email)
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 执行时间")
+            print(f"启动参数: {json.dumps(param_info)}")
+            
             # Xvfb 初始化
             xvfb = None
             try:
