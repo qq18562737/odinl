@@ -32,7 +32,7 @@ defmodule Actor.AutoRegister do
           # 最大并发注册数
           max_concurrent: 3,
           # 注册间隔(毫秒)
-          delay_between: 5_000,
+          delay_between: 10_000,
           # 注册超时时间
           timeout: 600_000,
           # 最大重试次数
