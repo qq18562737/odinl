@@ -32,7 +32,7 @@ defmodule Actor.AutoRegister do
           # 最大并发注册数
           max_concurrent: 3,
           # 注册间隔(毫秒)
-          delay_between: 10_000,
+          delay_between: 5_000,
           # 注册超时时间
           timeout: 600_000,
           # 最大重试次数
@@ -297,7 +297,7 @@ defmodule Actor.AutoRegister do
       # 更新状态
       %{
         state
-        | last_register: new_last_register,
+        | last_register: :os.system_time(1000),
           registration_queue: remaining_queue,
           in_progress: updated_in_progress,
           failed: new_failed

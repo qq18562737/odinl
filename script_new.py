@@ -430,7 +430,7 @@ class OdinRegistrationBot:
     def log_step(self, message, email="", save_screenshot=False):
         """记录步骤信息并可选保存截图"""
 
-        logging.info(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {email} {message}")
+        #logging.info(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {email} {message}")
 
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}")
         print(f"当前标题: {self.driver.title}")
