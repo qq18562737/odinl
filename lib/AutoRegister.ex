@@ -2,7 +2,9 @@ defmodule Actor.AutoRegister do
   require Logger
   use Actor
 
-  # 创建AutoRegister actor实例
+  @doc """
+  创建AutoRegister actor实例
+  """
   def create() do
     actor_uuid = MnesiaKV.uuid()
 
@@ -34,15 +36,18 @@ defmodule Actor.AutoRegister do
           # 注册超时时间
           timeout: 600_000,
           # 最大重试次数
-          max_retries: 2
+          max_retries: 2,
+          # 错误冷却时间(秒)
+          error_cooldown: 86_400 # 24小时
         }
       }
     })
   end
 
-  # 更新配置
+  @doc """
+  更新配置
+  """
   def update_config(uuid, config) do
-    # 使用 MnesiaKV.merge
     actor = MnesiaKV.get(Actor, uuid)
 
     if actor do
@@ -50,9 +55,10 @@ defmodule Actor.AutoRegister do
     end
   end
 
-  # 添加注册站点
+  @doc """
+  添加注册站点
+  """
   def add_sites(uuid, sites) when is_list(sites) do
-    # 使用 MnesiaKV.merge
     actor = MnesiaKV.get(Actor, uuid)
 
     if actor do
@@ -62,22 +68,37 @@ defmodule Actor.AutoRegister do
     end
   end
 
-  # 添加注册队列
+  @doc """
+  添加注册队列
+  """
   def add_to_queue(uuid, count) do
-    # 获取可用账户
+    # 获取可用账户，增加状态检查
     available_accounts =
       MnesiaKV.get(Account)
-      |> Enum.filter(
-        &(&1[:blocked] == nil &&
-            &1[:owner] == :admin &&
-            !&1[:registered_site] &&
-            get_in(&1, [:keep, :email]) != nil)
-      )
+      |> Enum.filter(fn account ->
+        # 基本条件
+        basic_cond = account[:blocked] == nil &&
+                     account[:owner] == :admin &&
+                     !account[:registered_site] &&
+                     get_in(account, [:keep, :email]) != nil
+        
+        # 状态条件
+        status_cond = 
+          case get_in(account, [:status, :type]) do
+            nil -> true
+            :active -> true
+            :temporary_error -> 
+              cooldown = get_in(account, [:status, :next_available]) || 0
+              cooldown <= System.system_time(:second)
+            _ -> false # 其他状态(如password_error, blocked)不选择
+          end
+        
+        basic_cond && status_cond
+      end)
       |> Enum.take(count)
       |> Enum.map(& &1.uuid)
 
     # 更新注册队列
-    # 使用 MnesiaKV.merge
     actor = MnesiaKV.get(Actor, uuid)
 
     if actor do
@@ -91,13 +112,14 @@ defmodule Actor.AutoRegister do
     end
   end
 
-  # 处理注册结果
+  @doc """
+  处理注册结果
+  """
   def proc_result(file) do
     out =
       File.read!(file)
       |> String.split("\n")
 
-    # Enum.each(out, fn x -> IO.puts(x) end)
     tok = out |> Enum.find(&String.starts_with?(&1, "$RESULT$:"))
     tok = tok && String.replace(tok, "$RESULT$:", "") |> String.trim()
     terror = out |> Enum.find(&String.starts_with?(&1, "$ERROR$:"))
@@ -111,14 +133,25 @@ defmodule Actor.AutoRegister do
         end
 
       terror ->
-        {:error, terror}
+        # 增强错误分类
+        case terror do
+          "password_error" -> {:failed, :password_error}
+          "account_blocked" -> {:failed, :account_blocked}
+          "account_not_found" -> {:failed, :account_not_found}
+          "verification_required" -> {:failed, :verification_required}
+          "proxy_error" -> {:failed, :proxy_error}
+          "email_already_exists" -> {:failed, :email_already_exists}
+          _ -> {:error, terror}
+        end
 
       true ->
         {:error, out}
     end
   end
 
-  # 使用Chrome执行自动化注册
+  @doc """
+  使用Chrome执行自动化注册
+  """
   def chromium_py(tag, args, proxy) do
     proxy = JSX.encode!(proxy)
     args = args ++ [proxy]
@@ -128,11 +161,8 @@ defmodule Actor.AutoRegister do
     Logger.warning(script)
     File.write("/root/tmp/#{tag}", script)
     File.write("/root/tmp/#{tag}.log", "")
-    # 执行命令
-    #_res = :os.cmd(~c"-- sh /tmp/#{tag}")
+    
     _res = :os.cmd(String.to_charlist("sh /root/tmp/#{tag}"))
-    IO.puts(_res)
-    # if read instantly, the file is complete buffered yet
     :timer.sleep(500)
     res = proc_result("/root/tmp/#{tag}.log")
 
@@ -159,27 +189,18 @@ defmodule Actor.AutoRegister do
           {:error, json["error"] || "registration_failed"}
         end
 
-      {:error, res}
-      when res in [
-             "failed_run_chrome",
-             "proxy_timeout",
-             "registration_error",
-             "site_blocked",
-             "verification_required",
-             "email_already_exists"
-           ] ->
-        {:failed, res}
+      {:failed, reason} ->
+        {:failed, reason}
 
       {:error, _res} ->
         {:error, "/root/tmp/#{tag}.log"}
     end
   end
 
-  # 生成代理配置
+  @doc """
+  生成代理配置
+  """
   def get_proxy(account_uuid) do
-    # 生成唯一会话ID
-    #session_id = "#{account_uuid}_#{:os.system_time(1000)}"
-
     %{
       host: "http://geo.iproyal.com:12321",
       ip: "geo.iproyal.com",
@@ -190,11 +211,11 @@ defmodule Actor.AutoRegister do
     }
   end
 
-  # tick函数 - 每个tick_interval被调用一次
+  @doc """
+  tick函数 - 每个tick_interval被调用一次
+  """
   def tick(state) do
-    # 确保关键状态字段是正确的类型
     state = ensure_valid_state(state)
-
     ts_m = :os.system_time(1000)
 
     # 检查是否到了下一次注册的时间
@@ -205,8 +226,20 @@ defmodule Actor.AutoRegister do
       timeout = get_in(state, [:config, :timeout]) || 120_000
       {new_in_progress, timed_out} = check_timeouts(state.in_progress, ts_m, timeout)
 
-      # 将超时的添加到失败列表
-      new_failed = state.failed ++ timed_out
+      # 将超时的添加到失败列表并标记为临时错误
+      new_failed = 
+        Enum.reduce(timed_out, state.failed, fn uuid, acc ->
+          MnesiaKV.merge(Account, uuid, %{
+            status: %{
+              type: :temporary_error,
+              last_error: "timeout",
+              error_time: System.system_time(:second),
+              next_available: System.system_time(:second) + get_in(state, [:config, :error_cooldown], 86_400),
+              error_count: 1
+            }
+          })
+          [uuid | acc]
+        end)
 
       # 计算可以启动的新注册数量
       current_count = map_size(new_in_progress)
@@ -229,7 +262,6 @@ defmodule Actor.AutoRegister do
           failed: new_failed
       }
     else
-      # 不是注册时间，仅返回当前状态
       state
     end
   end
@@ -268,7 +300,6 @@ defmodule Actor.AutoRegister do
 
   # 检查超时的注册
   defp check_timeouts(in_progress, current_time, timeout) do
-    # 确保in_progress是Map
     in_progress = if is_map(in_progress), do: in_progress, else: %{}
 
     {timed_out, still_in_progress} =
@@ -282,25 +313,20 @@ defmodule Actor.AutoRegister do
 
   # 启动新的注册
   defp start_registrations(account_uuids, in_progress, current_time, sites, batch_id) do
-    # 确保sites是非空列表
     sites =
       if is_list(sites) && sites != [],
         do: sites,
         else: ["https://pre.kakaogames.com/odinvalhallarising/reservation/6"]
 
-    # 确保in_progress是Map
     in_progress = if is_map(in_progress), do: in_progress, else: %{}
 
     Enum.reduce(account_uuids, {in_progress, current_time}, fn uuid,
                                                                {acc_in_progress, acc_last_time} ->
-      # 获取账户信息
       account = MnesiaKV.get(Account, uuid)
 
       if account && get_in(account, [:keep, :email]) do
-        # 选择一个随机站点
         site = Enum.random(sites)
 
-        # 记录此次注册尝试
         register_data = %{
           site: site,
           start_time: current_time,
@@ -308,13 +334,10 @@ defmodule Actor.AutoRegister do
           retries: 0
         }
 
-        # 启动注册进程
         spawn(fn -> perform_registration(uuid, site, account, batch_id) end)
 
-        # 更新进行中的注册和最后注册时间
         {Map.put(acc_in_progress, uuid, register_data), current_time}
       else
-        # 账户没有邮箱信息，跳过
         {acc_in_progress, acc_last_time}
       end
     end)
@@ -322,42 +345,28 @@ defmodule Actor.AutoRegister do
 
   # 执行实际注册过程
   defp perform_registration(account_uuid, site, account, batch_id) do
-    # 获取账户信息
     email = get_in(account, [:keep, :email])
-    password = get_in(account, [:keep, :password]) || generate_password()
-
-    # 获取代理
+    password = get_in(account, [:keep, :password])
     proxy = get_proxy(account_uuid)
-
-    # 构建注册参数
     username = String.split(email, "@") |> List.first()
 
     registration_args = [
-      # 注册网站URL
       site,
-      # 邮箱
       email,
-      # 密码
       password,
-      # 用户名
       username,
-      # 区域参数 region
-      "0",
-      # 服务器参数 server
-      "0"
+      "0", # region
+      "0"  # server
     ]
 
-    # 执行Chrome自动化注册
     Logger.info("Starting registration for account #{account_uuid} on #{site}")
     result = chromium_py(account_uuid, registration_args, proxy)
     Logger.info("Registration result for #{account_uuid}: #{inspect(result)}")
 
     case result do
       {:ok, json} ->
-        # 注册成功
         Logger.info("Successfully registered account #{account_uuid} on #{site}")
 
-        # 更新账户信息
         MnesiaKV.merge(Account, account_uuid, %{
           registered_site: site,
           registration_info: %{
@@ -368,41 +377,76 @@ defmodule Actor.AutoRegister do
             server: json["server"],
             region: json["region"],
             char_name: json["char_name"]
+          },
+          status: %{
+            type: :active,
+            last_error: nil,
+            error_time: nil,
+            next_available: nil,
+            error_count: 0
           }
         })
 
-        # 通知Actor注册成功
         notify_registration_completed(account_uuid, true)
 
       {:failed, reason} ->
-        # 注册失败
         Logger.warn("Failed to register account #{account_uuid} on #{site}: #{reason}")
-
-        # 通知Actor注册失败
+        update_account_status(account_uuid, reason)
         notify_registration_completed(account_uuid, false, reason)
 
       {:error, log_path} ->
-        # 出现错误
-        Logger.error(
-          "Error registering account #{account_uuid} on #{site}, check log: #{log_path}"
-        )
-
-        # 通知Actor注册错误
+        Logger.error("Error registering account #{account_uuid} on #{site}, check log: #{log_path}")
+        update_account_status(account_uuid, "registration_error")
         notify_registration_completed(account_uuid, false, "registration_error")
     end
   end
 
-  # 生成随机密码
-  defp generate_password() do
-    # 生成10位随机密码(字母数字混合)
-    for _ <- 1..10,
-        into: "",
-        do: <<Enum.random('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')>>
+  # 根据错误类型更新账户状态
+  defp update_account_status(account_uuid, reason) do
+    account = MnesiaKV.get(Account, account_uuid)
+    error_count = get_in(account, [:status, :error_count]) || 0
+    
+    status_update = 
+      case reason do
+        :password_error ->
+          %{
+            type: :password_error,
+            last_error: "password_error",
+            error_time: System.system_time(:second),
+            error_count: error_count + 1
+          }
+          
+        :account_blocked ->
+          %{
+            type: :blocked,
+            last_error: "account_blocked",
+            error_time: System.system_time(:second),
+            error_count: error_count + 1
+          }
+          
+        :account_not_found ->
+          %{
+            type: :not_found,
+            last_error: "account_not_found",
+            error_time: System.system_time(:second),
+            error_count: error_count + 1
+          }
+          
+        _ ->
+          %{
+            type: :temporary_error,
+            last_error: to_string(reason),
+            error_time: System.system_time(:second),
+            next_available: System.system_time(:second) + 86_400, # 24小时
+            error_count: error_count + 1
+          }
+      end
+    
+    MnesiaKV.merge(Account, account_uuid, %{status: status_update})
   end
 
   # 通知注册完成
   defp notify_registration_completed(account_uuid, success, reason \\ nil) do
-    # 获取AutoRegister实例的PID
     case :pg.get_members(PGActorAll, Actor.AutoRegister) do
       [pid | _] ->
         send(pid, {:registration_completed, account_uuid, success, reason})
@@ -414,45 +458,20 @@ defmodule Actor.AutoRegister do
 
   # 处理注册完成消息
   def message({:registration_completed, account_uuid, success, reason}, state) do
-    # 确保状态中的关键字段有效
     state = ensure_valid_state(state)
 
     if Map.has_key?(state.in_progress, account_uuid) do
-      # 从in_progress中移除
-      {registration_data, new_in_progress} = Map.pop(state.in_progress, account_uuid)
+      {_registration_data, new_in_progress} = Map.pop(state.in_progress, account_uuid)
 
       if success do
-        # 添加到已完成列表
         new_completed = [account_uuid | state.completed]
-        # 记录成功信息
-        Logger.info("Registration completed for #{account_uuid} on #{registration_data.site}")
         %{state | in_progress: new_in_progress, completed: new_completed}
       else
-        # 记录失败原因
-        Logger.warn(
-          "Registration failed for #{account_uuid} on #{registration_data.site}: #{reason}"
-        )
-
-        # 检查是否可以重试
-        max_retries = get_in(state, [:config, :max_retries]) || 2
-
-        if registration_data.retries < max_retries do
-          # 可以重试，放回队列前端
-          Logger.info(
-            "Scheduling retry #{registration_data.retries + 1}/#{max_retries} for #{account_uuid}"
-          )
-
-          new_queue = [account_uuid | state.registration_queue]
-          %{state | in_progress: new_in_progress, registration_queue: new_queue}
-        else
-          # 不能重试，添加到失败列表
-          Logger.warn("Max retries reached for #{account_uuid}, marking as failed")
-          new_failed = [account_uuid | state.failed]
-          %{state | in_progress: new_in_progress, failed: new_failed}
-        end
+        # 失败处理已在perform_registration中完成，这里只需更新状态
+        new_failed = [account_uuid | state.failed]
+        %{state | in_progress: new_in_progress, failed: new_failed}
       end
     else
-      # 未知的账户ID，忽略
       Logger.warn("Received completion for unknown account: #{account_uuid}")
       state
     end
@@ -460,18 +479,17 @@ defmodule Actor.AutoRegister do
 
   # 处理其他消息
   def message(msg, state) do
-    # 记录未知消息
     Logger.warn("Received unknown message: #{inspect(msg)}")
-    # 确保返回的状态有效
     ensure_valid_state(state)
   end
 
-  # 获取注册状态
+  @doc """
+  获取注册状态
+  """
   def get_status(uuid) do
     actor = MnesiaKV.get(Actor, uuid)
 
     if actor do
-      # 确保fields存在，防止错误
       in_progress = Map.get(actor, :in_progress, %{})
       in_progress = if is_map(in_progress), do: in_progress, else: %{}
 
@@ -484,7 +502,6 @@ defmodule Actor.AutoRegister do
       failed = Map.get(actor, :failed, [])
       failed = if is_list(failed), do: failed, else: []
 
-      # 返回详细状态
       %{
         queue_size: length(registration_queue),
         in_progress: map_size(in_progress),
@@ -492,14 +509,12 @@ defmodule Actor.AutoRegister do
         failed: length(failed),
         sites: actor.sites,
         config: actor.config,
-        # 添加详细信息
         in_progress_details: in_progress,
         last_completed: Enum.take(completed, 5),
         last_failed: Enum.take(failed, 5),
         batch_id: actor.batch_id
       }
     else
-      # 返回默认空状态
       %{
         queue_size: 0,
         in_progress: 0,
@@ -515,7 +530,9 @@ defmodule Actor.AutoRegister do
     end
   end
 
-  # 重置状态
+  @doc """
+  重置状态
+  """
   def reset(uuid) do
     MnesiaKV.merge(Actor, uuid, %{
       last_register: 0,
@@ -526,7 +543,9 @@ defmodule Actor.AutoRegister do
     })
   end
 
-  # 添加: 打印当前状态的调试函数
+  @doc """
+  打印当前状态的调试信息
+  """
   def debug(uuid) do
     actor = MnesiaKV.get(Actor, uuid)
 
@@ -540,7 +559,6 @@ defmodule Actor.AutoRegister do
       Logger.info("Failed: #{length(actor.failed || [])} items")
       Logger.info("Config: #{inspect(actor.config)}")
 
-      # 输出正在进行中的注册
       if map_size(actor.in_progress || %{}) > 0 do
         Logger.info("--- Current In-Progress Registrations ---")
 
@@ -558,14 +576,15 @@ defmodule Actor.AutoRegister do
     end
   end
 
-  # 添加: 获取已完成的注册详情
+  @doc """
+  获取已完成的注册详情
+  """
   def get_completed_details(uuid) do
     actor = MnesiaKV.get(Actor, uuid)
 
     if actor do
       completed_accounts = actor.completed || []
 
-      # 获取已完成账户的详细信息
       Enum.map(completed_accounts, fn account_uuid ->
         account = MnesiaKV.get(Account, account_uuid)
 
@@ -587,5 +606,17 @@ defmodule Actor.AutoRegister do
     else
       []
     end
+  end
+
+  @doc """
+  获取账户状态统计
+  """
+  def get_account_stats() do
+    accounts = MnesiaKV.get(Account)
+    
+    Enum.reduce(accounts, %{}, fn account, acc ->
+      status_type = get_in(account, [:status, :type]) || :active
+      Map.update(acc, status_type, 1, &(&1 + 1))
+    end)
   end
 end
