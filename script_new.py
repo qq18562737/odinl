@@ -138,6 +138,18 @@ class OdinRegistrationBot:
         chrome_options.add_argument(f'--disable-component-update')
 
 
+        # 为每个实例使用唯一的调试端口
+        debug_port = random.randint(9000, 10000)
+        chrome_options.add_argument(f'--remote-debugging-port={debug_port}')
+
+        import os
+        import uuid
+        unique_id = str(uuid.uuid4())
+        user_data_dir = f"/root/tmp/chrome-user-data-{unique_id}"
+        if not os.path.exists(user_data_dir):
+            os.makedirs(user_data_dir)
+        chrome_options.add_argument(f'--user-data-dir={user_data_dir}')
+
 
         return chrome_options
 
