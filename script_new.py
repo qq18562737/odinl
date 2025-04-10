@@ -448,11 +448,11 @@ class OdinRegistrationBot:
         if not self.driver:
             return False
         print(f"当前标题: {self.driver.title}")
-        print(f"当前URL: {self.driver.current_url}")
-        action_name = self.extract_part(message)
+        print(f"当前URL: {self.driver.current_url}")        
         
-        
+        save_screenshot = False
         if save_screenshot and hasattr(self, 'driver'):
+            action_name = self.extract_part(message)
             try:
                 # 确保email有效且不包含特殊字符
                 safe_email = "unknown" if not email else email.split("@")[0].replace(".", "_")
