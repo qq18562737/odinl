@@ -176,7 +176,7 @@ defmodule Actor.AutoRegister do
     proxy = JSX.encode!(proxy)
     args = args ++ [proxy]
     args = args |> Enum.map(&"'#{&1}'") |> Enum.join(" ")
-    script = "TAG=#{tag} python3.9 -u /root/script_new.py #{args} > /tmp/#{tag}.log"
+    script = "TAG=#{tag} python3.9 -u /root/script_new.py #{args} > /root/tmp/#{tag}.log"
 
     Logger.warning(script)
     File.write("/root/tmp/#{tag}", script)
