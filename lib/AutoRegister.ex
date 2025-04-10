@@ -342,31 +342,31 @@ defmodule Actor.AutoRegister do
   # HTTPoison.head(("https://pre.kakaogames.com/odinvalhallarising/reservation/6"))
   defp test_website_available(state, retries \\ 3)
   defp test_website_available(_state, 0), do: false
-  
+
   defp test_website_available(state, retries) do
     try do
       case site = hd(state.sites || []) do
         nil ->
           Logger.error("No sites configured in state: #{inspect(state)}")
           false
-  
+
         url ->
           headers = [{"User-Agent", "Mozilla/5.0"}]
-          
+
           case HTTPoison.head(url, headers,
-               timeout: 10_000,
-               recv_timeout: 15_000,
-               hackney: [pool: :default],
-               follow_redirect: true,
-               ssl: [{:versions, [:'tlsv1.2']}]
-             ) do
+                 timeout: 10_000,
+                 recv_timeout: 15_000,
+                 hackney: [pool: :default],
+                 follow_redirect: true,
+                 ssl: [{:versions, [:"tlsv1.2"]}]
+               ) do
             {:ok, %{status_code: code}} when code in 200..399 ->
               true
-  
+
             {:ok, %{status_code: code}} ->
               Logger.warning("Site returned non-success status: #{code}")
               false
-  
+
             {:error, %HTTPoison.Error{reason: reason}} ->
               Logger.warning("HTTP request failed: #{inspect(reason)}")
               false
@@ -378,7 +378,7 @@ defmodule Actor.AutoRegister do
         Website availability check crashed!
         Error: #{Exception.format(:error, e, System.stacktrace())}
         """)
-        
+
         if retries > 0 do
           :timer.sleep(1000)
           test_website_available(state, retries - 1)
@@ -493,7 +493,7 @@ defmodule Actor.AutoRegister do
         server = Map.get(json, "server", "unknown")
         region = Map.get(json, "region", "0")
         char_name = Map.get(json, "char_name", "")
-  
+
         MnesiaKV.merge(Account, account_uuid, %{
           registered_site: site,
           registration_info: %{
@@ -514,18 +514,17 @@ defmodule Actor.AutoRegister do
             error_count: 0
           }
         })
-        
+
         notify_registration_completed(account_uuid, true)
-  
+
       {:ok, %{"error" => error_msg}} ->
         Logger.error("API returned error: #{error_msg}")
         update_account_status(account_uuid, error_msg)
-  
+
       {:error, reason} ->
         Logger.error("Registration failed: #{inspect(reason)}")
         update_account_status(account_uuid, reason)
     end
-
   end
 
   # 根据错误类型更新账户状态
