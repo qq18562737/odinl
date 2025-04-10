@@ -433,6 +433,8 @@ class OdinRegistrationBot:
         #logging.info(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {email} {message}")
 
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}")
+        if not self.driver:
+            return False
         print(f"当前标题: {self.driver.title}")
         print(f"当前URL: {self.driver.current_url}")
         action_name = self.extract_part(message)
