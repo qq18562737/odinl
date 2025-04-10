@@ -226,15 +226,17 @@ defmodule Actor.AutoRegister do
       timeout = get_in(state, [:config, :timeout]) || 120_000
       {new_in_progress, timed_out} = check_timeouts(state.in_progress, ts_m, timeout)
 
+      next_available = System.system_time(:second) + get_in(state, [:config, :error_cooldown]) || 86_400
       # 将超时的添加到失败列表并标记为临时错误
       new_failed = 
         Enum.reduce(timed_out, state.failed, fn uuid, acc ->
           MnesiaKV.merge(Account, uuid, %{
             status: %{
+              at: DateTime.utc_now(),
               type: :temporary_error,
               last_error: "timeout",
               error_time: System.system_time(:second),
-              next_available: System.system_time(:second) + get_in(state, [:config, :error_cooldown], 86_400),
+              next_available: next_available,
               error_count: 1
             }
           })
@@ -266,7 +268,7 @@ defmodule Actor.AutoRegister do
     end
   end
 
-  # 确保状态中的关键字段有效
+  # 确保状态中的关键字段有效合法可用
   defp ensure_valid_state(state) do
     state
     |> ensure_map_field(:in_progress)
@@ -379,6 +381,7 @@ defmodule Actor.AutoRegister do
             char_name: json["char_name"]
           },
           status: %{
+            at: DateTime.utc_now(),
             type: :active,
             last_error: nil,
             error_time: nil,
@@ -408,16 +411,19 @@ defmodule Actor.AutoRegister do
     
     status_update = 
       case reason do
+        # 标记为密码错误，永久禁用
         :password_error ->
           %{
+            at: DateTime.utc_now(),
             type: :password_error,
             last_error: "password_error",
             error_time: System.system_time(:second),
             error_count: error_count + 1
           }
-          
+        # 标记为封禁状态
         :account_blocked ->
           %{
+            at: DateTime.utc_now(),
             type: :blocked,
             last_error: "account_blocked",
             error_time: System.system_time(:second),
@@ -426,6 +432,7 @@ defmodule Actor.AutoRegister do
           
         :account_not_found ->
           %{
+            at: DateTime.utc_now(),
             type: :not_found,
             last_error: "account_not_found",
             error_time: System.system_time(:second),
@@ -433,7 +440,9 @@ defmodule Actor.AutoRegister do
           }
           
         _ ->
+          # 临时错误，设置24小时冷却时间
           %{
+            at: DateTime.utc_now(),
             type: :temporary_error,
             last_error: to_string(reason),
             error_time: System.system_time(:second),
@@ -482,7 +491,32 @@ defmodule Actor.AutoRegister do
     Logger.warn("Received unknown message: #{inspect(msg)}")
     ensure_valid_state(state)
   end
+@doc """
+手动覆盖熔断状态（用于紧急恢复）
+"""
+def force_reset_circuit_breaker(uuid) do
+  actor = MnesiaKV.get(Actor, uuid)
+  if actor do
+    MnesiaKV.merge(Actor, uuid, %{
+      circuit_breaker: reset_circuit_breaker(actor.circuit_breaker)
+    })
+  end
+end
 
+@doc """
+获取当前保护状态
+"""
+def get_protection_status(uuid) do
+  actor = MnesiaKV.get(Actor, uuid)
+  if actor do
+    %{
+      enabled: actor.circuit_breaker.enabled,
+      remaining_cooldown: max(0, (actor.circuit_breaker.cooldown_until || 0) - System.system_time(:millisecond)),
+      failure_count: actor.circuit_breaker.failure_count,
+      last_failure: actor.circuit_breaker.last_failure
+    }
+  end
+end
   @doc """
   获取注册状态
   """
