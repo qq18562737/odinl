@@ -30,7 +30,7 @@ defmodule Actor.AutoRegister do
         failed: [],
         config: %{
           # 最大并发注册数
-          max_concurrent: 3,
+          max_concurrent: 1,
           # 注册间隔(毫秒)
           delay_between: 5_000,
           # 注册超时时间
@@ -459,7 +459,7 @@ defmodule Actor.AutoRegister do
         }
 
         spawn(fn -> perform_registration(uuid, site, account, batch_id) end)
-        :timer.sleep(15000)
+        #:timer.sleep(15000)
         {Map.put(acc_in_progress, uuid, register_data), current_time}
       else
         {acc_in_progress, acc_last_time}
