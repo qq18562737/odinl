@@ -515,6 +515,10 @@ defmodule Actor.AutoRegister do
           }
         })
 
+        Logger.info(
+          "Save to Account  #{account_uuid} on #{username} #{password} #{server} #{region}"
+        )
+
         notify_registration_completed(account_uuid, true)
 
       {:ok, %{"error" => error_msg}} ->
