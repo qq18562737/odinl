@@ -177,7 +177,7 @@ defmodule Actor.AutoRegister do
     proxy = JSX.encode!(proxy)
     args = args ++ [proxy]
     args = args |> Enum.map(&"'#{&1}'") |> Enum.join(" ")
-    script = "TAG=#{tag} python3.9 -u /root/script_new.py #{args} > /root/tmp/#{tag}.log"
+    script = "TAG=#{tag} python3.9 -u /root/odinl/script_new.py #{args} > /root/tmp/#{tag}.log"
 
     Logger.warning(script)
     File.write("/root/tmp/#{tag}", script)
@@ -483,9 +483,9 @@ defmodule Actor.AutoRegister do
       "0"
     ]
 
-    Logger.info("Starting registration for account #{account_uuid} on #{site}")
-    result = chromium_py(account_uuid, registration_args, proxy)
-    Logger.info("Registration result for #{account_uuid}: #{inspect(result)}")
+    Logger.info("Starting registration for account #{email} on #{site}")
+    result = chromium_py(email, registration_args, proxy)
+    Logger.info("Registration result for #{email}: #{inspect(result)}")
 
     case result do
       {:ok, %{"status" => "success"} = json} ->
