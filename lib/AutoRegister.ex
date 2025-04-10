@@ -339,28 +339,51 @@ defmodule Actor.AutoRegister do
   end
 
   # HTTPoison.head(("https://pre.kakaogames.com/odinvalhallarising/reservation/6"))
-  defp test_website_available(state) do
-    case site = hd(state.sites || []) do
-      nil ->
-        Logger.error("No sites configured")
-        false
-
-      _ ->
-        case HTTPoison.head(site, [], hackney: [pool: :default], follow_redirect: true) do
-          {:ok, %{status_code: code}} when code in 200..399 ->
-            true
-
-          {:ok, %{status_code: _}} ->
-            false
-
-          {:error, reason} ->
-            Logger.error("Site check failed: #{inspect(reason)}")
-            false
-        end
+  defp test_website_available(state, retries \\ 3)
+  defp test_website_available(_state, 0), do: false
+  
+  defp test_website_available(state, retries) do
+    try do
+      case site = hd(state.sites || []) do
+        nil ->
+          Logger.error("No sites configured in state: #{inspect(state)}")
+          false
+  
+        url ->
+          headers = [{"User-Agent", "Mozilla/5.0"}]
+          
+          case HTTPoison.head(url, headers,
+               timeout: 10_000,
+               recv_timeout: 15_000,
+               hackney: [pool: :default],
+               follow_redirect: true,
+               ssl: [{:versions, [:'tlsv1.2']}]
+             ) do
+            {:ok, %{status_code: code}} when code in 200..399 ->
+              true
+  
+            {:ok, %{status_code: code}} ->
+              Logger.warning("Site returned non-success status: #{code}")
+              false
+  
+            {:error, %HTTPoison.Error{reason: reason}} ->
+              Logger.warning("HTTP request failed: #{inspect(reason)}")
+              false
+          end
+      end
     rescue
       e ->
-        Logger.error("Site check crashed: #{inspect(e)}")
-        false
+        Logger.error("""
+        Website availability check crashed!
+        Error: #{Exception.format(:error, e, System.stacktrace())}
+        """)
+        
+        if retries > 0 do
+          :timer.sleep(1000)
+          test_website_available(state, retries - 1)
+        else
+          false
+        end
     end
   end
 

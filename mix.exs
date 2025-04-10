@@ -28,6 +28,7 @@ defmodule Odinl.MixProject do
       # {:tz, "~> 0.26.2"},
       {:mitm, git: "https://github.com/xenomorphtech/mitm_ex.git"},
       {:exjsx, "4.0.0"},
+      {:httpoison, "~> 1.8"},
       {:utilex,
        git:
          "https://gitlab+deploy-token-3565493:7QsqgYuA1EcKQU7eRUEn@gitlab.com/xenomorph-colonies/utilex.git"}
