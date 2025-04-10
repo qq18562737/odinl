@@ -1423,7 +1423,7 @@ class OdinRegistrationBot:
             'char_name': "",
             'message': "",
             'error': "",
-            'step'
+            'step': ""
         }
 
         try:
