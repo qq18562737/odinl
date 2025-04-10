@@ -134,6 +134,7 @@ defmodule Actor.AutoRegister do
 
   @doc """
   处理注册结果
+  Actor.AutoRegister.proc_result("/root/tmp/06b1mi8k2mgpof1b.log")
   """
   def proc_result(file) do
     out =

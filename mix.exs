@@ -29,6 +29,7 @@ defmodule Odinl.MixProject do
       {:mitm, git: "https://github.com/xenomorphtech/mitm_ex.git"},
       {:exjsx, "4.0.0"},
       {:httpoison, "~> 1.8"},
+      {:jason, "~> 1.4"}  # 添加这一行
       {:utilex,
        git:
          "https://gitlab+deploy-token-3565493:7QsqgYuA1EcKQU7eRUEn@gitlab.com/xenomorph-colonies/utilex.git"}
