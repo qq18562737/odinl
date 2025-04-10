@@ -237,9 +237,8 @@ defmodule Actor.AutoRegister do
   """
   def tick(state) do
     state = ensure_valid_state(state)
-
-    delay_between = get_in(state, [:config, :delay_between]) || 5_000
-    Logger.info("tick #{:os.system_time(1000) - delay_between} ")
+    
+    #Logger.info("tick #{:os.system_time(1000)} ")
 
     # 熔断检查优先于正常逻辑
     case check_circuit_breaker(state) do
@@ -460,7 +459,7 @@ defmodule Actor.AutoRegister do
         }
 
         spawn(fn -> perform_registration(uuid, site, account, batch_id) end)
-        :timer.sleep(5000)
+        :timer.sleep(15000)
         {Map.put(acc_in_progress, uuid, register_data), current_time}
       else
         {acc_in_progress, acc_last_time}
