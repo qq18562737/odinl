@@ -238,6 +238,9 @@ defmodule Actor.AutoRegister do
   def tick(state) do
     state = ensure_valid_state(state)
 
+    #delay_between = get_in(state, [:config, :delay_between]) || 5_000
+    #Logger.info("tick #{:os.system_time(1000) - delay_between} ")
+
     # 熔断检查优先于正常逻辑
     case check_circuit_breaker(state) do
       {:block, updated_state} ->
@@ -434,7 +437,7 @@ defmodule Actor.AutoRegister do
   end
 
   # 启动新的注册
-  defp start_registrations(account_uuids, in_progress, current_time, sites, batch_id) do
+  defp start_registrations11(account_uuids, in_progress, current_time, sites, batch_id) do
     sites =
       if is_list(sites) && sites != [],
         do: sites,
@@ -464,7 +467,42 @@ defmodule Actor.AutoRegister do
       end
     end)
   end
-
+  # 启动新的注册
+  defp start_registrations(account_uuids, in_progress, current_time, sites, batch_id) do
+    sites =
+      if is_list(sites) && sites != [],
+        do: sites,
+        else: ["https://pre.kakaogames.com/odinvalhallarising/reservation/6"]
+    
+    in_progress = if is_map(in_progress), do: in_progress, else: %{}
+    
+    # 只从账户列表中选择第一个有效账户进行注册
+    case Enum.find(account_uuids, fn uuid ->
+      account = MnesiaKV.get(Account, uuid)
+      account && get_in(account, [:keep, :email])
+    end) do
+      nil -> 
+        # 没有找到有效账户，返回原始状态
+        {in_progress, current_time}
+      
+      uuid ->
+        # 找到有效账户，只为这一个账户启动注册过程
+        account = MnesiaKV.get(Account, uuid)
+        site = Enum.random(sites)
+        register_data = %{
+          site: site,
+          start_time: current_time,
+          account: account,
+          retries: 0
+        }
+        
+        # 只执行一次spawn
+        spawn(fn -> perform_registration(uuid, site, account, batch_id) end)
+        
+        # 更新并返回状态
+        {Map.put(in_progress, uuid, register_data), current_time}
+    end
+  end
   # 执行实际注册过程
   defp perform_registration(account_uuid, site, account, batch_id) do
     email = get_in(account, [:keep, :email])
