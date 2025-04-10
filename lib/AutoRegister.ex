@@ -237,8 +237,8 @@ defmodule Actor.AutoRegister do
   """
   def tick(state) do
     state = ensure_valid_state(state)
-    
-    #Logger.info("tick #{:os.system_time(1000)} ")
+
+    # Logger.info("tick #{:os.system_time(1000)} ")
 
     # 熔断检查优先于正常逻辑
     case check_circuit_breaker(state) do
@@ -294,7 +294,14 @@ defmodule Actor.AutoRegister do
 
       # 为每个要注册的账户启动注册过程
       {updated_in_progress, new_last_register} =
-        start_registrations(to_register, new_in_progress, ts_m, state.sites, state.batch_id)
+        start_registrations(
+          state.registration_queue,
+          new_in_progress,
+          ts_m,
+          state.sites,
+          state.batch_id,
+          max_concurrent
+        )
 
       # 更新状态
       %{
@@ -435,8 +442,54 @@ defmodule Actor.AutoRegister do
     {Map.new(still_in_progress), timed_out_uuids}
   end
 
+  defp start_registrations(
+         account_uuids,
+         in_progress,
+         current_time,
+         sites,
+         batch_id,
+         max_concurrent
+       ) do
+    sites =
+      if is_list(sites) && sites != [],
+        do: sites,
+        else: ["https://pre.kakaogames.com/odinvalhallarising/reservation/6"]
+
+    in_progress = if is_map(in_progress), do: in_progress, else: %{}
+
+    # 计算当前可以启动的新任务数量
+    available_slots = max_concurrent - map_size(in_progress)
+
+    if available_slots > 0 do
+      # 只取可用数量的账户
+      {to_register, _} = Enum.split(account_uuids, available_slots)
+
+      Enum.reduce(to_register, {in_progress, current_time}, fn uuid, {acc_in_progress, _} ->
+        account = MnesiaKV.get(Account, uuid)
+
+        if account && get_in(account, [:keep, :email]) do
+          site = Enum.random(sites)
+
+          register_data = %{
+            site: site,
+            start_time: current_time,
+            account: account,
+            retries: 0
+          }
+
+          spawn(fn -> perform_registration(uuid, site, account, batch_id) end)
+          {Map.put(acc_in_progress, uuid, register_data), current_time}
+        else
+          {acc_in_progress, current_time}
+        end
+      end)
+    else
+      {in_progress, current_time}
+    end
+  end
+
   # 启动新的注册
-  defp start_registrations(account_uuids, in_progress, current_time, sites, batch_id) do
+  defp start_registrations_old(account_uuids, in_progress, current_time, sites, batch_id) do
     sites =
       if is_list(sites) && sites != [],
         do: sites,
@@ -459,49 +512,52 @@ defmodule Actor.AutoRegister do
         }
 
         spawn(fn -> perform_registration(uuid, site, account, batch_id) end)
-        #:timer.sleep(15000)
+        # :timer.sleep(15000)
         {Map.put(acc_in_progress, uuid, register_data), current_time}
       else
         {acc_in_progress, acc_last_time}
       end
     end)
   end
+
   # 启动新的注册
   defp start_registrations111(account_uuids, in_progress, current_time, sites, batch_id) do
     sites =
       if is_list(sites) && sites != [],
         do: sites,
         else: ["https://pre.kakaogames.com/odinvalhallarising/reservation/6"]
-    
+
     in_progress = if is_map(in_progress), do: in_progress, else: %{}
-    
+
     # 只从账户列表中选择第一个有效账户进行注册
     case Enum.find(account_uuids, fn uuid ->
-      account = MnesiaKV.get(Account, uuid)
-      account && get_in(account, [:keep, :email])
-    end) do
-      nil -> 
+           account = MnesiaKV.get(Account, uuid)
+           account && get_in(account, [:keep, :email])
+         end) do
+      nil ->
         # 没有找到有效账户，返回原始状态
         {in_progress, current_time}
-      
+
       uuid ->
         # 找到有效账户，只为这一个账户启动注册过程
         account = MnesiaKV.get(Account, uuid)
         site = Enum.random(sites)
+
         register_data = %{
           site: site,
           start_time: current_time,
           account: account,
           retries: 0
         }
-        
+
         # 只执行一次spawn
         spawn(fn -> perform_registration(uuid, site, account, batch_id) end)
-        
+
         # 更新并返回状态
         {Map.put(in_progress, uuid, register_data), current_time}
     end
   end
+
   # 执行实际注册过程
   defp perform_registration(account_uuid, site, account, batch_id) do
     email = get_in(account, [:keep, :email])
@@ -561,10 +617,12 @@ defmodule Actor.AutoRegister do
       {:ok, %{"error" => error_msg}} ->
         Logger.error("API returned error: #{error_msg}")
         update_account_status(account_uuid, error_msg)
+        notify_registration_completed(account_uuid, false, error_msg)
 
       {:error, reason} ->
         Logger.error("Registration failed: #{inspect(reason)}")
         update_account_status(account_uuid, reason)
+        notify_registration_completed(account_uuid, false, reason)
     end
   end
 
