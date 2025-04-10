@@ -138,6 +138,10 @@ class OdinRegistrationBot:
         chrome_options.add_argument(f'--disable-component-update')
 
 
+        # 添加避免冲突的参数
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-software-rasterizer')
+
         # 为每个实例使用唯一的调试端口
         debug_port = random.randint(9000, 10000)
         chrome_options.add_argument(f'--remote-debugging-port={debug_port}')
@@ -197,7 +201,7 @@ class OdinRegistrationBot:
             self.driver = uc.Chrome(
                 seleniumwire_options=sel_options,
                 options=opts,
-                headless=False,
+                headless=True,
                 version_main=self.version_main
                 #enable_cdp_events=True
             )
@@ -1509,7 +1513,8 @@ class OdinRegistrationBot:
             if  not self.driver:
                 print("⚠️ Driver实例不存在")
             else:
-                self.driver.save_screenshot(f'/root/tmp/error_{time.strftime("%Y%m%d_%H%M%S")}.png')
+                print("Driver实例存在")
+                #self.driver.save_screenshot(f'/root/tmp/error_{time.strftime("%Y%m%d_%H%M%S")}.png')
                 
             print(json.dumps(result))
             return 1
