@@ -483,9 +483,9 @@ defmodule Actor.AutoRegister do
       "0"
     ]
 
-    Logger.info("Starting registration for account #{email} on #{site}")
-    result = chromium_py(email, registration_args, proxy)
-    Logger.info("Registration result for #{email}: #{inspect(result)}")
+    Logger.info("Starting registration for account #{account_uuid} on #{site}")
+    result = chromium_py(account_uuid, registration_args, proxy)
+    Logger.info("Registration result for #{account_uuid}: #{inspect(result)}")
 
     case result do
       {:ok, %{"status" => "success"} = json} ->
