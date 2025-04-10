@@ -38,7 +38,19 @@ defmodule Actor.AutoRegister do
           # 最大重试次数
           max_retries: 2,
           # 错误冷却时间(秒)
-          error_cooldown: 86_400 # 24小时
+          # 24小时
+          error_cooldown: 86_400
+        },
+        circuit_breaker: %{
+          enabled: false,
+          last_failure: nil,
+          failure_count: 0,
+          cooldown_until: nil,
+          # 可配置参数
+          # 连续失败阈值
+          threshold: 10,
+          # 5分钟冷却(毫秒)
+          cooldown_period: 300_000
         }
       }
     })
@@ -77,22 +89,30 @@ defmodule Actor.AutoRegister do
       MnesiaKV.get(Account)
       |> Enum.filter(fn account ->
         # 基本条件
-        basic_cond = account[:blocked] == nil &&
-                     account[:owner] == :admin &&
-                     !account[:registered_site] &&
-                     get_in(account, [:keep, :email]) != nil
-        
+        basic_cond =
+          account[:blocked] == nil &&
+            account[:owner] == :admin &&
+            !account[:registered_site] &&
+            get_in(account, [:keep, :email]) != nil
+
         # 状态条件
-        status_cond = 
+        status_cond =
           case get_in(account, [:status, :type]) do
-            nil -> true
-            :active -> true
-            :temporary_error -> 
+            nil ->
+              true
+
+            :active ->
+              true
+
+            :temporary_error ->
               cooldown = get_in(account, [:status, :next_available]) || 0
               cooldown <= System.system_time(:second)
-            _ -> false # 其他状态(如password_error, blocked)不选择
+
+            # 其他状态(如password_error, blocked)不选择
+            _ ->
+              false
           end
-        
+
         basic_cond && status_cond
       end)
       |> Enum.take(count)
@@ -161,7 +181,7 @@ defmodule Actor.AutoRegister do
     Logger.warning(script)
     File.write("/root/tmp/#{tag}", script)
     File.write("/root/tmp/#{tag}.log", "")
-    
+
     _res = :os.cmd(String.to_charlist("sh /root/tmp/#{tag}"))
     :timer.sleep(500)
     res = proc_result("/root/tmp/#{tag}.log")
@@ -216,6 +236,21 @@ defmodule Actor.AutoRegister do
   """
   def tick(state) do
     state = ensure_valid_state(state)
+
+    # 熔断检查优先于正常逻辑
+    case check_circuit_breaker(state) do
+      {:block, updated_state} ->
+        Logger.warning("Registration suspended due to circuit breaker")
+        updated_state
+
+      {:continue, updated_state} ->
+        # 原有tick逻辑...
+        process_normal_registration(updated_state)
+    end
+  end
+
+  # 原有tick逻辑.
+  def process_normal_registration(state) do
     ts_m = :os.system_time(1000)
 
     # 检查是否到了下一次注册的时间
@@ -226,9 +261,11 @@ defmodule Actor.AutoRegister do
       timeout = get_in(state, [:config, :timeout]) || 120_000
       {new_in_progress, timed_out} = check_timeouts(state.in_progress, ts_m, timeout)
 
-      next_available = System.system_time(:second) + get_in(state, [:config, :error_cooldown]) || 86_400
+      next_available =
+        System.system_time(:second) + get_in(state, [:config, :error_cooldown]) || 86_400
+
       # 将超时的添加到失败列表并标记为临时错误
-      new_failed = 
+      new_failed =
         Enum.reduce(timed_out, state.failed, fn uuid, acc ->
           MnesiaKV.merge(Account, uuid, %{
             status: %{
@@ -240,6 +277,7 @@ defmodule Actor.AutoRegister do
               error_count: 1
             }
           })
+
           [uuid | acc]
         end)
 
@@ -265,6 +303,64 @@ defmodule Actor.AutoRegister do
       }
     else
       state
+    end
+  end
+
+  defp check_circuit_breaker(state) do
+    cb = state.circuit_breaker
+
+    cond do
+      # 冷却期未结束
+      cb.enabled && cb.cooldown_until > System.system_time(:millisecond) ->
+        {:block, state}
+
+      # 冷却期结束，尝试恢复
+      cb.enabled ->
+        Logger.info("冷却期结束，尝试恢复...")
+
+        if test_website_available(state) do
+          {:continue, reset_circuit_breaker(state)}
+        else
+          # 延长冷却
+          new_state =
+            put_in(
+              state,
+              [:circuit_breaker, :cooldown_until],
+              System.system_time(:millisecond) + cb.cooldown_period
+            )
+
+          {:block, new_state}
+        end
+
+      # 正常状态
+      true ->
+        {:continue, state}
+    end
+  end
+
+  # HTTPoison.head(("https://pre.kakaogames.com/odinvalhallarising/reservation/6"))
+  defp test_website_available(state) do
+    case site = hd(state.sites || []) do
+      nil ->
+        Logger.error("No sites configured")
+        false
+
+      _ ->
+        case HTTPoison.head(site, [], hackney: [pool: :default], follow_redirect: true) do
+          {:ok, %{status_code: code}} when code in 200..399 ->
+            true
+
+          {:ok, %{status_code: _}} ->
+            false
+
+          {:error, reason} ->
+            Logger.error("Site check failed: #{inspect(reason)}")
+            false
+        end
+    rescue
+      e ->
+        Logger.error("Site check crashed: #{inspect(e)}")
+        false
     end
   end
 
@@ -357,8 +453,10 @@ defmodule Actor.AutoRegister do
       email,
       password,
       username,
-      "0", # region
-      "0"  # server
+      # region
+      "0",
+      # server
+      "0"
     ]
 
     Logger.info("Starting registration for account #{account_uuid} on #{site}")
@@ -398,7 +496,10 @@ defmodule Actor.AutoRegister do
         notify_registration_completed(account_uuid, false, reason)
 
       {:error, log_path} ->
-        Logger.error("Error registering account #{account_uuid} on #{site}, check log: #{log_path}")
+        Logger.error(
+          "Error registering account #{account_uuid} on #{site}, check log: #{log_path}"
+        )
+
         update_account_status(account_uuid, "registration_error")
         notify_registration_completed(account_uuid, false, "registration_error")
     end
@@ -408,8 +509,8 @@ defmodule Actor.AutoRegister do
   defp update_account_status(account_uuid, reason) do
     account = MnesiaKV.get(Account, account_uuid)
     error_count = get_in(account, [:status, :error_count]) || 0
-    
-    status_update = 
+
+    status_update =
       case reason do
         # 标记为密码错误，永久禁用
         :password_error ->
@@ -420,6 +521,7 @@ defmodule Actor.AutoRegister do
             error_time: System.system_time(:second),
             error_count: error_count + 1
           }
+
         # 标记为封禁状态
         :account_blocked ->
           %{
@@ -429,7 +531,7 @@ defmodule Actor.AutoRegister do
             error_time: System.system_time(:second),
             error_count: error_count + 1
           }
-          
+
         :account_not_found ->
           %{
             at: DateTime.utc_now(),
@@ -438,7 +540,7 @@ defmodule Actor.AutoRegister do
             error_time: System.system_time(:second),
             error_count: error_count + 1
           }
-          
+
         _ ->
           # 临时错误，设置24小时冷却时间
           %{
@@ -446,11 +548,12 @@ defmodule Actor.AutoRegister do
             type: :temporary_error,
             last_error: to_string(reason),
             error_time: System.system_time(:second),
-            next_available: System.system_time(:second) + 86_400, # 24小时
+            # 24小时
+            next_available: System.system_time(:second) + 86_400,
             error_count: error_count + 1
           }
       end
-    
+
     MnesiaKV.merge(Account, account_uuid, %{status: status_update})
   end
 
@@ -478,11 +581,26 @@ defmodule Actor.AutoRegister do
       else
         # 失败处理已在perform_registration中完成，这里只需更新状态
         new_failed = [account_uuid | state.failed]
-        %{state | in_progress: new_in_progress, failed: new_failed}
+        # %{state | in_progress: new_in_progress, failed: new_failed}
+        # 增强：更新熔断器状态
+        updated_state = %{
+          state
+          | in_progress: new_in_progress,
+            failed: new_failed,
+            circuit_breaker: update_failure_stats(state.circuit_breaker, reason)
+        }
+
+        # 检查是否触发熔断
+        if updated_state.circuit_breaker.failure_count >= updated_state.circuit_breaker.threshold do
+          Logger.error(
+            "Triggering circuit breaker! Failure count: #{updated_state.circuit_breaker.failure_count}"
+          )
+
+          enable_circuit_breaker(updated_state)
+        else
+          updated_state
+        end
       end
-    else
-      Logger.warn("Received completion for unknown account: #{account_uuid}")
-      state
     end
   end
 
@@ -491,32 +609,78 @@ defmodule Actor.AutoRegister do
     Logger.warn("Received unknown message: #{inspect(msg)}")
     ensure_valid_state(state)
   end
-@doc """
-手动覆盖熔断状态（用于紧急恢复）
-"""
-def force_reset_circuit_breaker(uuid) do
-  actor = MnesiaKV.get(Actor, uuid)
-  if actor do
-    MnesiaKV.merge(Actor, uuid, %{
-      circuit_breaker: reset_circuit_breaker(actor.circuit_breaker)
+
+  defp update_failure_stats(cb, reason) do
+    now = System.system_time(:millisecond)
+
+    # 如果是同类错误（如网站维护），增加计数
+    if is_system_error(reason) do
+      %{
+        cb
+        | failure_count: cb.failure_count + 1,
+          last_failure: now
+      }
+    else
+      # 账户级错误不影响熔断
+      cb
+    end
+  end
+
+  defp is_system_error(reason) do
+    reason in [:timeout, :service_unavailable, :connection_failed]
+  end
+
+  defp enable_circuit_breaker(state) do
+    cb = state.circuit_breaker
+
+    put_in(state, [:circuit_breaker], %{
+      cb
+      | enabled: true,
+        cooldown_until: System.system_time(:millisecond) + cb.cooldown_period
     })
   end
-end
 
-@doc """
-获取当前保护状态
-"""
-def get_protection_status(uuid) do
-  actor = MnesiaKV.get(Actor, uuid)
-  if actor do
-    %{
-      enabled: actor.circuit_breaker.enabled,
-      remaining_cooldown: max(0, (actor.circuit_breaker.cooldown_until || 0) - System.system_time(:millisecond)),
-      failure_count: actor.circuit_breaker.failure_count,
-      last_failure: actor.circuit_breaker.last_failure
-    }
+  defp reset_circuit_breaker(state) do
+    put_in(state, [:circuit_breaker], %{
+      enabled: false,
+      last_failure: nil,
+      failure_count: 0,
+      cooldown_until: nil,
+      threshold: state.circuit_breaker.threshold,
+      cooldown_period: state.circuit_breaker.cooldown_period
+    })
   end
-end
+
+  @doc """
+  手动覆盖熔断状态（用于紧急恢复）
+  """
+  def force_reset_circuit_breaker(uuid) do
+    actor = MnesiaKV.get(Actor, uuid)
+
+    if actor do
+      MnesiaKV.merge(Actor, uuid, %{
+        circuit_breaker: reset_circuit_breaker(actor.circuit_breaker)
+      })
+    end
+  end
+
+  @doc """
+  获取当前保护状态
+  """
+  def get_protection_status(uuid) do
+    actor = MnesiaKV.get(Actor, uuid)
+
+    if actor do
+      %{
+        enabled: actor.circuit_breaker.enabled,
+        remaining_cooldown:
+          max(0, (actor.circuit_breaker.cooldown_until || 0) - System.system_time(:millisecond)),
+        failure_count: actor.circuit_breaker.failure_count,
+        last_failure: actor.circuit_breaker.last_failure
+      }
+    end
+  end
+
   @doc """
   获取注册状态
   """
@@ -647,7 +811,7 @@ end
   """
   def get_account_stats() do
     accounts = MnesiaKV.get(Account)
-    
+
     Enum.reduce(accounts, %{}, fn account, acc ->
       status_type = get_in(account, [:status, :type]) || :active
       Map.update(acc, status_type, 1, &(&1 + 1))
