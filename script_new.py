@@ -180,7 +180,8 @@ class OdinRegistrationBot:
                 'suppress_connection_errors': True  # 抑制连接错误
             }
             
-            print(f"使用认证代理: {proxy_http}")
+            #print(f"使用认证代理: {proxy_http}")
+            self.log_step(f"初始认证代理: {proxy_http}", "")
             self.driver = uc.Chrome(
                 seleniumwire_options=sel_options,
                 options=opts,
@@ -188,7 +189,8 @@ class OdinRegistrationBot:
                 version_main=self.version_main
                 #enable_cdp_events=True
             )
-            print("代理设置完成")
+            self.log_step("代理设置完成", "")
+            #print("代理设置完成")
 
         elif proxy_config and proxy_config.get('ip'):
             # 无认证代理配置
@@ -358,7 +360,7 @@ class OdinRegistrationBot:
     def registration_process(self, start_url, email, password, recovery_email, world_name_int, server_identifier=None):
         """主要的注册流程"""
 
-        print("开始注册流程")
+         
         self.log_step("开始注册流程", email)
         retry_count = 0
         max_retries = 20
@@ -1490,7 +1492,11 @@ class OdinRegistrationBot:
             result['step'] = self.step
             result['error'] = error_msg
             result['message'] = "register_error_ty"
-            self.driver.save_screenshot(f'/root/tmp/error_{time.strftime("%Y%m%d_%H%M%S")}.png')
+            if  not self.driver:
+                print("⚠️ Driver实例不存在")
+            else:
+                self.driver.save_screenshot(f'/root/tmp/error_{time.strftime("%Y%m%d_%H%M%S")}.png')
+                
             print(json.dumps(result))
             return 1
             
@@ -1537,8 +1543,8 @@ if __name__ == '__main__':
                 'server_identifier': server_identifier,
                 'proxy': proxy
             }
-            print(f"启动参数: {json.dumps(param_info)}")
-            
+            #print(f"启动参数: {json.dumps(param_info)}")
+            self.log_step(f"启动参数: {json.dumps(param_info)}", email)
             # Xvfb 初始化
             xvfb = None
             try:
