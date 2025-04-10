@@ -487,9 +487,12 @@ defmodule Actor.AutoRegister do
     Logger.info("Registration result for #{account_uuid}: #{inspect(result)}")
 
     case result do
-      {:ok, json} ->
-        Logger.info("Successfully registered account #{account_uuid} on #{site}")
-
+      {:ok, %{"status" => "success"} = json} ->
+        # 成功时确保所有字段存在
+        server = Map.get(json, "server", "unknown")
+        region = Map.get(json, "region", "0")
+        char_name = Map.get(json, "char_name", "")
+  
         MnesiaKV.merge(Account, account_uuid, %{
           registered_site: site,
           registration_info: %{
@@ -497,9 +500,9 @@ defmodule Actor.AutoRegister do
             password: password,
             registration_time: DateTime.utc_now() |> DateTime.to_string(),
             batch_id: batch_id,
-            server: json["server"],
-            region: json["region"],
-            char_name: json["char_name"]
+            server: server,
+            region: region,
+            char_name: char_name
           },
           status: %{
             at: DateTime.utc_now(),
@@ -510,22 +513,18 @@ defmodule Actor.AutoRegister do
             error_count: 0
           }
         })
-
+        
         notify_registration_completed(account_uuid, true)
-
-      {:failed, reason} ->
-        Logger.warn("Failed to register account #{account_uuid} on #{site}: #{reason}")
+  
+      {:ok, %{"error" => error_msg}} ->
+        Logger.error("API returned error: #{error_msg}")
+        update_account_status(account_uuid, error_msg)
+  
+      {:error, reason} ->
+        Logger.error("Registration failed: #{inspect(reason)}")
         update_account_status(account_uuid, reason)
-        notify_registration_completed(account_uuid, false, reason)
-
-      {:error, log_path} ->
-        Logger.error(
-          "Error registering account #{account_uuid} on #{site}, check log: #{log_path}"
-        )
-
-        update_account_status(account_uuid, "registration_error")
-        notify_registration_completed(account_uuid, false, "registration_error")
     end
+
   end
 
   # 根据错误类型更新账户状态
