@@ -12,6 +12,7 @@ import random
 from xvfbwrapper import Xvfb
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
 import urllib.parse
 import re
@@ -22,18 +23,26 @@ from anticaptchaofficial.imagecaptcha import *
 import string
 import logging
 
-logging.basicConfig(
-    #level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('/root/tmp/script.log'),
-        logging.StreamHandler()  # 同时输出到控制台
-    ]
-)
+# logging.basicConfig(
+#     #level=logging.INFO,
+#     format='%(asctime)s - %(levelname)s - %(message)s',
+#     handlers=[
+#         logging.FileHandler('/root/tmp/script.log'),
+#         logging.StreamHandler()  # 同时输出到控制台
+#     ]
+# )
 
 reqids = [] 
 lastload = 0
+import socket
+from contextlib import closing
 
+def find_free_port():
+    """查找真正可用的端口"""
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(('', 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
 # 处理网络请求的函数
 def mylousyprintfunction(message):
     global reqids, lastload
@@ -137,22 +146,24 @@ class OdinRegistrationBot:
         chrome_options.add_argument(f'--disable-dev-shm-usage')
         chrome_options.add_argument(f'--disable-component-update')
 
+        chrome_options.add_argument("--host-resolver-rules='MAP * 0.0.0.0 , EXCLUDE 127.0.0.1'")
 
         # 添加避免冲突的参数
         #chrome_options.add_argument('--disable-extensions')
         #chrome_options.add_argument('--disable-software-rasterizer')
 
         # 为每个实例使用唯一的调试端口
-        # debug_port = random.randint(9000, 10000)
-        # chrome_options.add_argument(f'--remote-debugging-port={debug_port}')
+        debug_port = random.randint(9000, 10000)
+        debug_port = find_free_port()
+        chrome_options.add_argument(f'--remote-debugging-port={debug_port}')
 
-        # import os
-        # import uuid
-        # unique_id = str(uuid.uuid4())
-        # user_data_dir = f"/root/tmp/chrome-user-data-{unique_id}"
-        # if not os.path.exists(user_data_dir):
-        #     os.makedirs(user_data_dir)
-        # chrome_options.add_argument(f'--user-data-dir={user_data_dir}')
+        import os
+        import uuid
+        unique_id = str(uuid.uuid4())
+        user_data_dir = f"/tmp/chrome-user-data-{unique_id}"
+        if not os.path.exists(user_data_dir):
+            os.makedirs(user_data_dir)
+        chrome_options.add_argument(f'--user-data-dir={user_data_dir}')
 
 
         return chrome_options
@@ -188,23 +199,40 @@ class OdinRegistrationBot:
             sel_options = {
                 'proxy': {
                     'http': proxy_http,
-                    'https': proxy_https,
-                    'no_proxy': 'localhost,127.0.0.1'
-                },
-                'verify_ssl': False, # 禁用SSL验证
-                'connection_timeout': 60,  # 增加超时时间
-                'suppress_connection_errors': True  # 抑制连接错误
+                    'https': proxy_https
+                   # 'no_proxy': 'localhost,127.0.0.1'
+                }
+               # 'verify_ssl': False, # 禁用SSL验证
+               # 'connection_timeout': 60,  # 增加超时时间
+               # 'suppress_connection_errors': True  # 抑制连接错误
             }
-            
-            #print(f"使用认证代理: {proxy_http}")
+            driver_port = find_free_port()
+            self.log_step(f"端口: {driver_port}", "")
+            # 服务配置
+            service = Service(
+                port=driver_port,
+                service_args=[
+                    f'--port={driver_port}'
+                    #'--log-path=/tmp/chromedriver.log',
+                   # '--verbose'
+                ]
+            )
+             #print(f"使用认证代理: {proxy_http}")
             self.log_step(f"初始认证代理: {proxy_http}", "")
-            self.driver = uc.Chrome(
+            try:
+                self.driver = uc.Chrome(
+                #service=service,
                 seleniumwire_options=sel_options,
                 options=opts,
                 headless=False,
                 version_main=self.version_main
                 #enable_cdp_events=True
             )
+            except Exception as e:            
+                self.log_step(f"代理设置出错: {str(e)}", email, save_screenshot=True)
+
+           
+
             self.log_step("代理设置完成", "")
             #print("代理设置完成")
 

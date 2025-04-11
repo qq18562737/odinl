@@ -30,7 +30,7 @@ defmodule Actor.AutoRegister do
         failed: [],
         config: %{
           # 最大并发注册数
-          max_concurrent: 1,
+          max_concurrent: 2,
           # 注册间隔(毫秒)
           delay_between: 5_000,
           # 注册超时时间
@@ -172,8 +172,70 @@ defmodule Actor.AutoRegister do
 
   @doc """
   使用Chrome执行自动化注册
+  tag = 06avjquguoorats6
+  lxc-attach ubuntu-e -- sh /root/tmp/06avjquguoorats6
+  echo $?  # 查看退出状态码
   """
+  # 定义模块级常量，方便全局修改
+
+  # 在LXC下使用
   def chromium_py(tag, args, proxy) do
+    proxy = JSX.encode!(proxy)
+    args = args ++ [proxy]
+    args = args |> Enum.map(&"'#{&1}'") |> Enum.join(" ")
+
+    # 宿主机上容器的根目录
+    lxc_root = "/var/lib/lxc/ubuntu-e/rootfs/tmp/"
+
+    # 使用 @tmp_dir 变量
+    script_path = "#{lxc_root}#{tag}"
+    log_path = "#{lxc_root}#{tag}.log"
+
+    script = "TAG=#{tag} python3.9 -u /tmp/script_new.py #{args} > /tmp/#{tag}.log"
+
+    Logger.warning(script)
+    File.write(script_path, script)
+    File.write(log_path, "")
+
+    # _res = :os.cmd(String.to_charlist("sh #{script_path}"))
+    _res = :os.cmd(~c"lxc-attach ubuntu-e -- sh /tmp/#{tag}")
+    :timer.sleep(500)
+    res = proc_result(log_path)
+    Logger.warning("Result: #{inspect(res)}")
+
+    try do
+      _ghost =
+        :os.cmd(~c"grep -s -l \"TAG=#{tag}\" /proc/*/environ")
+        |> :binary.list_to_bin()
+        |> String.split("\n")
+        |> Enum.filter(&(&1 != ""))
+        |> Enum.each(fn x ->
+          Logger.warning("killing ghost proccess #{tag} #{x}")
+          pid = Enum.at(String.split(x, "/"), 2)
+          :os.cmd(~c"kill -9 #{pid}")
+        end)
+    catch
+      _, _ -> nil
+    end
+
+    case res do
+      {:ok, json} ->
+        if json["status"] == "success" do
+          {:ok, json}
+        else
+          {:error, json["error"] || "registration_failed"}
+        end
+
+      {:failed, reason} ->
+        {:failed, reason}
+
+      {:error, _res} ->
+        {:error, log_path}
+    end
+  end
+
+  # 主目录下使用
+  def chromium_py11(tag, args, proxy) do
     proxy = JSX.encode!(proxy)
     args = args ++ [proxy]
     args = args |> Enum.map(&"'#{&1}'") |> Enum.join(" ")
@@ -457,30 +519,28 @@ defmodule Actor.AutoRegister do
 
     in_progress = if is_map(in_progress), do: in_progress, else: %{}
 
-    # 计算当前可以启动的新任务数量
     available_slots = max_concurrent - map_size(in_progress)
 
     if available_slots > 0 do
-      # 只取可用数量的账户
       {to_register, _} = Enum.split(account_uuids, available_slots)
 
       Enum.reduce(to_register, {in_progress, current_time}, fn uuid, {acc_in_progress, _} ->
-        account = MnesiaKV.get(Account, uuid)
+        case MnesiaKV.get(Account, uuid) do
+          %{keep: %{email: _}} = account ->
+            site = Enum.random(sites)
+            spawn(fn -> perform_registration(uuid, site, account, batch_id) end)
 
-        if account && get_in(account, [:keep, :email]) do
-          site = Enum.random(sites)
+            :timer.sleep(15000)
 
-          register_data = %{
-            site: site,
-            start_time: current_time,
-            account: account,
-            retries: 0
-          }
+            {Map.put(acc_in_progress, uuid, %{
+               site: site,
+               start_time: current_time,
+               account: account,
+               retries: 0
+             }), current_time}
 
-          spawn(fn -> perform_registration(uuid, site, account, batch_id) end)
-          {Map.put(acc_in_progress, uuid, register_data), current_time}
-        else
-          {acc_in_progress, current_time}
+          _ ->
+            {acc_in_progress, current_time}
         end
       end)
     else
@@ -576,9 +636,13 @@ defmodule Actor.AutoRegister do
       "0"
     ]
 
+    ts_m = :os.system_time(1000)
     Logger.info("Starting registration for account #{account_uuid} on #{site}")
     result = chromium_py(account_uuid, registration_args, proxy)
-    Logger.info("Registration result for #{account_uuid}: #{inspect(result)}")
+
+    Logger.info(
+      "Registration result for time: #{:os.system_time(1000) - ts_m} #{account_uuid}: #{inspect(result)}"
+    )
 
     case result do
       {:ok, %{"status" => "success"} = json} ->

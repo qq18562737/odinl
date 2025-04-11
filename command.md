@@ -427,3 +427,21 @@ tmux new -s "nc" -d
 tmux attach-session -t nc
 
 scp -P 29876 /root/script_main.py root@8.209.201.80:/root/
+
+
+
+
+
+#===============================
+# 临时设置（推荐值 10-30 平衡性能与安全性）
+sudo sysctl vm.swappiness=30
+
+# 永久生效
+echo 'vm.swappiness=30' | sudo tee -a /etc/sysctl.conf
+# 安装内存压力测试工具
+sudo apt install stress-ng
+
+# 分配 1.5GB 内存（观察 SWAP 使用）
+stress-ng --vm 1 --vm-bytes 1.5G --vm-keep
+
+sync && echo 3 | sudo tee /proc/sys/vm/drop_caches
