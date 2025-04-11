@@ -179,7 +179,7 @@ defmodule Actor.AutoRegister do
   # 定义模块级常量，方便全局修改
 
   # 在LXC下使用
-  def chromium_py(tag, args, proxy) do
+  def chromium_py_lxc(tag, args, proxy) do
     proxy = JSX.encode!(proxy)
     args = args ++ [proxy]
     args = args |> Enum.map(&"'#{&1}'") |> Enum.join(" ")
@@ -235,7 +235,7 @@ defmodule Actor.AutoRegister do
   end
 
   # 主目录下使用
-  def chromium_py11(tag, args, proxy) do
+  def chromium_py(tag, args, proxy) do
     proxy = JSX.encode!(proxy)
     args = args ++ [proxy]
     args = args |> Enum.map(&"'#{&1}'") |> Enum.join(" ")
